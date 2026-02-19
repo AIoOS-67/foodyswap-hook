@@ -244,20 +244,38 @@ Suite result: ok. 18 passed; 0 failed; 0 skipped
 anvil
 
 # Deploy hook
-forge script script/00_DeployHook.s.sol \
+forge script script/DeployFoodySwap.s.sol \
     --rpc-url http://localhost:8545 \
     --private-key <PRIVATE_KEY> \
     --broadcast
 ```
 
+### Deploy (Base Sepolia)
+
+```bash
+# 1. Copy .env.example and fill in your values
+cp .env.example .env
+
+# 2. Source the env file
+source .env
+
+# 3. Deploy with verification
+forge script script/DeployFoodySwap.s.sol \
+    --rpc-url base_sepolia \
+    --private-key $PRIVATE_KEY \
+    --broadcast \
+    --verify
+```
+
 ### Deploy (Base Mainnet)
 
 ```bash
-forge script script/00_DeployHook.s.sol \
-    --rpc-url https://mainnet.base.org \
+forge script script/DeployFoodySwap.s.sol \
+    --rpc-url base \
     --account <KEYSTORE_NAME> \
     --sender <WALLET_ADDRESS> \
-    --broadcast
+    --broadcast \
+    --verify
 ```
 
 > **Note:** After deployment, the hook contract must be granted `MINTER_ROLE` on the FoodyeCoin contract to mint cashback rewards.
@@ -286,6 +304,49 @@ forge script script/00_DeployHook.s.sol \
 | **Tracking** | `testTotalVolume` | Volume counter increments |
 | **Tracking** | `testTotalRewardsDistributed` | Reward counter increments |
 | **Fallback** | `testSwapWithoutHookData` | Swaps without hookData work normally |
+
+### Fuzz Tests
+
+```bash
+forge test --match-contract FoodySwapHookFuzzTest -vvv
+# Deep run (10,000 iterations):
+forge test --match-contract FoodySwapHookFuzzTest --fuzz-runs 10000
+```
+
+| Test | Fuzz Input | Invariant |
+|---|---|---|
+| `testFuzz_DynamicFeeNeverExceedsBase` | `address user` | Fee <= BASE_LP_FEE for any user at any tier |
+| `testFuzz_RewardScalingNoOverflow` | `uint256 inputAmount` | 1e12 scaling never overflows for up to $10M swaps |
+| `testFuzz_OperatingHoursLogic` | `uint8 open, uint8 close, uint256 time` | Overnight wrapping logic always correct |
+| `testFuzz_SwapVaryingAmounts` | `uint256 amountIn` | Swaps of any size track loyalty correctly |
+| `testFuzz_ReferralCannotBeExploited` | `address referrer, address referee` | Self-referral blocked, double-set blocked |
+
+---
+
+## Gas Report
+
+Gas snapshots are stored in `.forge-snapshots/`. To regenerate:
+
+```bash
+forge snapshot --match-path test/FoodySwapHook.t.sol --snap .forge-snapshots/FoodySwapHook.snap
+```
+
+### Key Operations
+
+| Operation | Gas | Description |
+|---|---|---|
+| `beforeSwap` + `afterSwap` (basic swap) | ~455K | Full hook pipeline with loyalty tracking |
+| `afterSwap` with cashback rewards | ~451K | Swap + FOODY mint + loyalty update |
+| `afterSwap` with referral bonus | ~519K | Swap + cashback + referrer bonus mint |
+| `afterSwap` with tier upgrades (10 swaps) | ~1.08M | Multi-swap accumulation + tier progression |
+| `beforeSwap` constraint check (inactive) | ~42K | Restaurant whitelist revert |
+| `beforeSwap` operating hours check | ~82K | Time-based constraint validation |
+| Swap without hookData (passthrough) | ~129K | No loyalty overhead, base V4 swap |
+| `addRestaurant` | ~64K | Admin restaurant management |
+| `setReferrer` | ~40K | One-time referral setup |
+| `getCurrentFeeForUser` (view) | ~13K | Dynamic fee calculation |
+
+> Gas values measured on Cancun EVM with `forge snapshot`. Check regression with `forge snapshot --check`.
 
 ---
 
