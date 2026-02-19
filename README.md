@@ -1,183 +1,325 @@
-# Uniswap v4 Hook Template
+# FoodySwap Hook
 
-**A template for writing Uniswap v4 Hooks 🦄**
+**A Uniswap V4 Hook for Restaurant Payments + Loyalty Rewards on Base Chain**
 
-### Get Started
+> Part of [FoodyePay](https://foodyepay.com) — an AI-powered Web3 restaurant payment platform.
 
-This template provides a starting point for writing Uniswap v4 Hooks, including a simple example and preconfigured test environment. Start by creating a new repository using the "Use this template" button at the top right of this page. Alternatively you can also click this link:
+---
 
-[![Use this Template](https://img.shields.io/badge/Use%20this%20Template-101010?style=for-the-badge&logo=github)](https://github.com/uniswapfoundation/v4-template/generate)
+## Overview
 
-1. The example hook [Counter.sol](src/Counter.sol) demonstrates the `beforeSwap()` and `afterSwap()` hooks
-2. The test template [Counter.t.sol](test/Counter.t.sol) preconfigures the v4 pool manager, test tokens, and test liquidity.
+FoodySwap Hook transforms every FOODY/USDC swap into a complete restaurant loyalty experience. Unlike generic DeFi hooks, FoodySwap applies Uniswap V4's hook architecture to a **real-world vertical** — restaurant payments — with on-chain loyalty tiers, cashback rewards, referral bonuses, and soulbound VIP NFTs.
 
-<details>
-<summary>Updating to v4-template:latest</summary>
+### The Problem
 
-This template is actively maintained -- you can update the v4 dependencies, scripts, and helpers:
+Traditional restaurant loyalty programs are:
+- **Fragmented** — Every restaurant has its own points system
+- **Opaque** — Customers can't verify their rewards
+- **Non-portable** — Points are locked to a single chain or platform
+- **Easily gamed** — Centralized systems are vulnerable to fraud
 
-```bash
-git remote add template https://github.com/uniswapfoundation/v4-template
-git fetch template
-git merge template/main <BRANCH> --allow-unrelated-histories
+### The Solution
+
+FoodySwap Hook embeds loyalty logic directly into Uniswap V4's swap lifecycle:
+- Customer pays with FOODY token at any whitelisted restaurant
+- Hook auto-validates the transaction (Layer 1)
+- Hook applies tier-based fee discount (Layer 2)
+- Hook distributes FOODY cashback + updates loyalty on-chain (Layer 3)
+
+**Everything happens atomically within a single swap transaction.**
+
+---
+
+## Architecture
+
+### One Hook, Three Layers
+
+FoodySwap uses a **single hook contract** with three logical layers — cleaner than multiple hooks, less gas, no cross-contract state, and aligned with V4's design philosophy (one hook per pool).
+
+```
+FoodySwapHook.sol
+├── beforeSwap()
+│   ├── Layer 1: Constraints (_checkConstraints)
+│   │   ├── Restaurant whitelist verification
+│   │   ├── Operating hours validation (block.timestamp)
+│   │   └── Per-transaction amount limits
+│   └── Layer 2: Pricing (_calculateDynamicFee)
+│       ├── Tier-based fee discount (2%/5%/8%/12%)
+│       ├── Peak hour fee adjustment (lunch/dinner = lower fees)
+│       └── Dynamic fee override via LPFeeLibrary.OVERRIDE_FEE_FLAG
+└── afterSwap()
+    └── Layer 3: Settlement + Rewards (_settleAndReward)
+        ├── FOODY cashback mint (3-10% based on tier)
+        ├── Loyalty points tracking + auto tier upgrade
+        ├── Referral bonus (referrer earns 1%, referee gets 2% extra on first swap)
+        └── VIP NFT auto-mint at $1,000+ cumulative spend
 ```
 
-</details>
+### Hook Permissions
+
+| Permission | Used | Purpose |
+|---|---|---|
+| `afterInitialize` | Yes | Set initial dynamic LP fee |
+| `beforeSwap` | Yes | Layer 1 (Constraints) + Layer 2 (Pricing) |
+| `afterSwap` | Yes | Layer 3 (Settlement + Rewards) |
+| All others | No | Not needed |
+
+---
+
+## Loyalty System
+
+### Tier Structure
+
+| Tier | Threshold | Fee Discount | Cashback Rate | Perks |
+|---|---|---|---|---|
+| Bronze | $0+ | 2% | 3% FOODY | Base tier |
+| Silver | $200+ | 5% | 5% FOODY | Better rates |
+| Gold | $500+ | 8% | 7% FOODY | Priority |
+| VIP | $1,000+ | 12% | 10% FOODY | Soulbound NFT + max rewards |
+
+### Peak Hour Bonus
+
+During lunch (11-14 UTC) and dinner (17-21 UTC) hours, all users receive an additional **1% fee discount**, incentivizing on-chain payments during peak restaurant hours.
+
+### Referral Program
+
+| Role | Bonus |
+|---|---|
+| Referrer | 1% of referee's swap amount (ongoing) |
+| Referee | 2% extra FOODY on first swap |
+
+### VIP NFT (Soulbound)
+
+When a user reaches $1,000+ cumulative spend, the hook automatically mints a **soulbound (non-transferable) VIP NFT** (`FoodyVIPNFT.sol`). This serves as:
+- Permanent proof of VIP status
+- On-chain membership badge
+- Cannot be transferred or sold (prevents gaming)
+
+---
+
+## Contracts
+
+| Contract | Description | Lines |
+|---|---|---|
+| [`FoodySwapHook.sol`](src/FoodySwapHook.sol) | Main hook — 3-layer architecture | ~557 |
+| [`FoodyVIPNFT.sol`](src/FoodyVIPNFT.sol) | Soulbound VIP membership NFT | ~56 |
+| [`MockFoodyToken.sol`](test/mocks/MockFoodyToken.sol) | Test mock for FoodyeCoin | ~26 |
+
+### Key Design Decisions
+
+1. **Single hook, not three** — One contract manages all three layers. Less gas, simpler state, matches V4's one-hook-per-pool design.
+
+2. **Existing token integration** — FoodySwap interfaces with the **existing FoodyeCoin** ([`0x289b...462c`](https://basescan.org/token/0x289b9fc2a3f19faf7260905d0b15e1c90e8a462c)) on Base chain, which has `MINTER_ROLE`-based `mint()`. The hook is granted MINTER_ROLE to mint cashback rewards directly.
+
+3. **Dynamic fee via OVERRIDE_FEE_FLAG** — Layer 2 uses `LPFeeLibrary.OVERRIDE_FEE_FLAG` to override the pool's LP fee per-swap based on the user's loyalty tier, without permanently changing the pool's base fee.
+
+4. **hookData encoding** — Swap callers pass `abi.encode(userAddress, restaurantId)` as hookData. Swaps without hookData are processed normally (no loyalty tracking).
+
+5. **Off-chain fee splitting** — While the hook tracks fee split ratios (90% restaurant / 5% platform / 5% reward pool), actual USDC distribution happens off-chain via the FoodyePay platform to avoid complex on-chain accounting.
+
+---
+
+## Integration with FoodyePay Platform
+
+FoodySwap Hook is one layer of the **FoodyePay 2.0** platform:
+
+```
+┌──────────────────────────────────────────────────┐
+│              FoodyePay 2.0 Platform               │
+├──────────────────────────────────────────────────┤
+│                                                  │
+│  Voice AI Layer          Blockchain Layer         │
+│  ┌──────────────┐       ┌──────────────────┐    │
+│  │ Gemini Live  │       │ Uniswap V4 Hook  │    │
+│  │ Phone ordering│       │ FoodySwap        │    │
+│  │ Multilingual │       │ FOODY/USDC swap  │    │
+│  │ Real-time    │       │ Loyalty rewards  │    │
+│  └──────────────┘       └──────────────────┘    │
+│                                                  │
+│  Frontend: Next.js 14 (App Router)              │
+│  Chain: Base (8453)                             │
+│  Tokens: FOODY + USDC                           │
+└──────────────────────────────────────────────────┘
+```
+
+### Customer Flow
+
+```
+Customer calls restaurant
+    │
+    ▼
+┌─ Voice AI ──────────────────────────────────────┐
+│  "Hi, I'd like kung pao chicken + fried rice"   │
+│  AI: "That'll be $28.50"                        │
+└─────────────────────────────────────────────────┘
+    │
+    ▼
+┌─ FoodySwap Hook (this repo) ────────────────────┐
+│  Customer pays with FOODY token                  │
+│  beforeSwap: validate restaurant + apply discount│
+│  afterSwap: mint FOODY cashback + update loyalty │
+└──────────────────────────────────────────────────┘
+```
+
+---
+
+## Partner Integrations
+
+| Partner | Integration | Status |
+|---|---|---|
+| **Uniswap V4** | Core hook infrastructure (`BaseHook`, `PoolManager`, `LPFeeLibrary`) | Implemented |
+| **Base Chain** | Deployment target (Chain ID 8453) | Designed for |
+| **FoodyeCoin (FOODY)** | Existing ERC20 token with MINTER_ROLE on Base | Integrated |
+| **USDC (Circle)** | Base currency for restaurant payments | Integrated |
+| **OpenZeppelin** | `BaseHook` from `@openzeppelin/uniswap-hooks` | Implemented |
+| **Solmate** | `ERC721` + `Owned` for VIP NFT, `ERC20` for mock token | Implemented |
+| **Coinbase Smart Wallet** | User wallet for dApp interactions | Frontend integration |
+
+### Potential Future Integrations
+
+| Partner | Integration Opportunity |
+|---|---|
+| **Circle Paymaster** | Gasless swaps — customers pay gas in USDC, no ETH needed |
+| **Circle CCTP v2** | Cross-chain USDC liquidity replenishment |
+| **Chainlink** | Oracle-based dynamic fee adjustment using external volatility data |
+
+---
+
+## Getting Started
 
 ### Requirements
 
-This template is designed to work with Foundry (stable). If you are using Foundry Nightly, you may encounter compatibility issues. You can update your Foundry installation to the latest stable version by running:
+- [Foundry](https://book.getfoundry.sh/getting-started/installation) (stable)
+- Solidity ^0.8.26
 
-```
-foundryup
-```
+### Install
 
-To set up the project, run the following commands in your terminal to install dependencies and run the tests:
-
-```
+```bash
+git clone https://github.com/anthropics/foodyswap-hook.git
+cd foodyswap-hook
 forge install
+```
+
+### Build
+
+```bash
+forge build
+```
+
+### Test
+
+```bash
 forge test
 ```
 
-### Local Development
+**Expected output: 18/18 tests passing**
 
-Other than writing unit tests (recommended!), you can only deploy & test hooks on [anvil](https://book.getfoundry.sh/anvil/) locally. Scripts are available in the `script/` directory, which can be used to deploy hooks, create pools, provide liquidity and swap tokens. The scripts support both local `anvil` environment as well as running them directly on a production network.
+```
+[PASS] testAddRestaurant()
+[PASS] testBasicSwapTracksLoyalty()
+[PASS] testCannotReferSelf()
+[PASS] testCannotSetReferrerTwice()
+[PASS] testCashbackRewards()
+[PASS] testDynamicFeeByTier()
+[PASS] testInactiveRestaurantReverts()
+[PASS] testMaxTxAmountEnforced()
+[PASS] testOnlyAdminCanAddRestaurant()
+[PASS] testOperatingHoursEnforced()
+[PASS] testReferralSystem()
+[PASS] testRemoveRestaurant()
+[PASS] testSwapWithoutHookData()
+[PASS] testTierUpgrades()
+[PASS] testTotalRewardsDistributed()
+[PASS] testTotalVolume()
+[PASS] testVIPNFTSoulbound()
+[PASS] testViewFunctions()
 
-### Executing locally with using **Anvil**:
+Suite result: ok. 18 passed; 0 failed; 0 skipped
+```
 
-1. Start Anvil (or fork a specific chain using anvil):
+### Deploy (Anvil)
 
 ```bash
+# Start local node
 anvil
-```
 
-or
-
-```bash
-anvil --fork-url <YOUR_RPC_URL>
-```
-
-2. Execute scripts:
-
-```bash
+# Deploy hook
 forge script script/00_DeployHook.s.sol \
     --rpc-url http://localhost:8545 \
     --private-key <PRIVATE_KEY> \
     --broadcast
 ```
 
-### Using **RPC URLs** (actual transactions):
-
-:::info
-It is best to not store your private key even in .env or enter it directly in the command line. Instead use the `--account` flag to select your private key from your keystore.
-:::
-
-### Follow these steps if you have not stored your private key in the keystore:
-
-<details>
-
-1. Add your private key to the keystore:
-
-```bash
-cast wallet import <SET_A_NAME_FOR_KEY> --interactive
-```
-
-2. You will prompted to enter your private key and set a password, fill and press enter:
-
-```
-Enter private key: <YOUR_PRIVATE_KEY>
-Enter keystore password: <SET_NEW_PASSWORD>
-```
-
-You should see this:
-
-```
-`<YOUR_WALLET_PRIVATE_KEY_NAME>` keystore was saved successfully. Address: <YOUR_WALLET_ADDRESS>
-```
-
-::: warning
-Use `history -c` to clear your command history.
-:::
-
-</details>
-
-1. Execute scripts:
+### Deploy (Base Mainnet)
 
 ```bash
 forge script script/00_DeployHook.s.sol \
-    --rpc-url <YOUR_RPC_URL> \
-    --account <YOUR_WALLET_PRIVATE_KEY_NAME> \
-    --sender <YOUR_WALLET_ADDRESS> \
+    --rpc-url https://mainnet.base.org \
+    --account <KEYSTORE_NAME> \
+    --sender <WALLET_ADDRESS> \
     --broadcast
 ```
 
-You will prompted to enter your wallet password, fill and press enter:
+> **Note:** After deployment, the hook contract must be granted `MINTER_ROLE` on the FoodyeCoin contract to mint cashback rewards.
 
-```
-Enter keystore password: <YOUR_PASSWORD>
-```
+---
 
-### Key Modifications to note:
+## Test Coverage
 
-1. Update the `token0` and `token1` addresses in the `BaseScript.sol` file to match the tokens you want to use in the network of your choice for sepolia and mainnet deployments.
-2. Update the `token0Amount` and `token1Amount` in the `CreatePoolAndAddLiquidity.s.sol` file to match the amount of tokens you want to provide liquidity with.
-3. Update the `token0Amount` and `token1Amount` in the `AddLiquidity.s.sol` file to match the amount of tokens you want to provide liquidity with.
-4. Update the `amountIn` and `amountOutMin` in the `Swap.s.sol` file to match the amount of tokens you want to swap.
+| Category | Tests | Description |
+|---|---|---|
+| **Loyalty** | `testBasicSwapTracksLoyalty` | Verifies swap updates totalSpent, swapCount, tier |
+| **Cashback** | `testCashbackRewards` | Verifies FOODY tokens minted as cashback |
+| **Tiers** | `testTierUpgrades` | Verifies tier progression with cumulative spend |
+| **Referrals** | `testReferralSystem` | Verifies referrer earns bonus on referee's swaps |
+| **Referrals** | `testCannotReferSelf` | Prevents self-referral |
+| **Referrals** | `testCannotSetReferrerTwice` | Prevents changing referrer |
+| **Restaurants** | `testAddRestaurant` | Admin can add restaurants |
+| **Restaurants** | `testRemoveRestaurant` | Admin can deactivate restaurants |
+| **Restaurants** | `testOnlyAdminCanAddRestaurant` | Non-admin cannot manage restaurants |
+| **Constraints** | `testInactiveRestaurantReverts` | Swap fails for non-whitelisted restaurant |
+| **Constraints** | `testOperatingHoursEnforced` | Swap fails outside operating hours |
+| **Constraints** | `testMaxTxAmountEnforced` | Transaction limit enforcement |
+| **Pricing** | `testDynamicFeeByTier` | Fee discount varies by loyalty tier |
+| **VIP** | `testVIPNFTSoulbound` | Soulbound NFT properties |
+| **Views** | `testViewFunctions` | All getter functions return correct data |
+| **Tracking** | `testTotalVolume` | Volume counter increments |
+| **Tracking** | `testTotalRewardsDistributed` | Reward counter increments |
+| **Fallback** | `testSwapWithoutHookData` | Swaps without hookData work normally |
 
-### Verifying the hook contract
+---
 
-```bash
-forge verify-contract \
-  --rpc-url <URL> \
-  --chain <CHAIN_NAME_OR_ID> \
-  # Generally etherscan
-  --verifier <Verification_Provider> \
-  # Use --etherscan-api-key <ETHERSCAN_API_KEY> if you are using etherscan
-  --verifier-api-key <Verification_Provider_API_KEY> \
-  --constructor-args <ABI_ENCODED_ARGS> \
-  --num-of-optimizations <OPTIMIZER_RUNS> \
-  <Contract_Address> \
-  <path/to/Contract.sol:ContractName>
-  --watch
-```
+## On-Chain References
 
-### Troubleshooting
+| Asset | Address | Chain |
+|---|---|---|
+| FoodyeCoin (FOODY) | [`0x289b9fc2a3f19faf7260905d0b15e1c90e8a462c`](https://basescan.org/token/0x289b9fc2a3f19faf7260905d0b15e1c90e8a462c) | Base |
+| USDC | [`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`](https://basescan.org/token/0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913) | Base |
+| FOODY/USDC V4 Pool | Position #60816 (0.3% fee) | Base |
+| FOODY/USDC V3 Pool | Position #3093011 | Base |
 
-<details>
+---
 
-#### Permission Denied
+## Technical Stack
 
-When installing dependencies with `forge install`, Github may throw a `Permission Denied` error
+- **Solidity** 0.8.26+ (compiled with 0.8.30)
+- **Foundry** (forge, anvil)
+- **Uniswap V4 Core** — PoolManager, Hooks, LPFeeLibrary, BalanceDelta
+- **OpenZeppelin Uniswap Hooks** — BaseHook
+- **Solmate** — ERC721, ERC20, Owned
+- **EVM Version** — Cancun (transient storage support)
 
-Typically caused by missing Github SSH keys, and can be resolved by following the steps [here](https://docs.github.com/en/github/authenticating-to-github/connecting-to-github-with-ssh)
+---
 
-Or [adding the keys to your ssh-agent](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent#adding-your-ssh-key-to-the-ssh-agent), if you have already uploaded SSH keys
+## License
 
-#### Anvil fork test failures
+MIT
 
-Some versions of Foundry may limit contract code size to ~25kb, which could prevent local tests to fail. You can resolve this by setting the `code-size-limit` flag
+---
 
-```
-anvil --code-size-limit 40000
-```
+## Links
 
-#### Hook deployment failures
-
-Hook deployment failures are caused by incorrect flags or incorrect salt mining
-
-1. Verify the flags are in agreement:
-   - `getHookCalls()` returns the correct flags
-   - `flags` provided to `HookMiner.find(...)`
-2. Verify salt mining is correct:
-   - In **forge test**: the _deployer_ for: `new Hook{salt: salt}(...)` and `HookMiner.find(deployer, ...)` are the same. This will be `address(this)`. If using `vm.prank`, the deployer will be the pranking address
-   - In **forge script**: the deployer must be the CREATE2 Proxy: `0x4e59b44847b379578588920cA78FbF26c0B4956C`
-     - If anvil does not have the CREATE2 deployer, your foundry may be out of date. You can update it with `foundryup`
-
-</details>
-
-### Additional Resources
-
-- [Uniswap v4 docs](https://docs.uniswap.org/contracts/v4/overview)
-- [v4-periphery](https://github.com/uniswap/v4-periphery)
-- [v4-core](https://github.com/uniswap/v4-core)
-- [v4-by-example](https://v4-by-example.org)
+- [FoodyePay Platform](https://foodyepay.com)
+- [FoodyeCoin on BaseScan](https://basescan.org/token/0x289b9fc2a3f19faf7260905d0b15e1c90e8a462c)
+- [Uniswap V4 Docs](https://docs.uniswap.org/contracts/v4/overview)
+- [UHI Hookathon 8](https://www.uniswapfoundation.org/hookathon)
