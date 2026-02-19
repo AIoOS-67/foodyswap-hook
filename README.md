@@ -372,6 +372,33 @@ forge snapshot --match-path test/FoodySwapHook.t.sol --snap .forge-snapshots/Foo
 
 ---
 
+## Security Considerations
+
+| Area | Mitigation | Status |
+|---|---|---|
+| **Admin privilege** | Only `admin` can add/remove restaurants, update wallets | Implemented |
+| **Reentrancy** | Hook callbacks are called by PoolManager within its lock — no external calls before state updates | Safe by design |
+| **Integer overflow** | Solidity 0.8+ built-in overflow checks; reward scaling verified via fuzz tests | Tested |
+| **Self-referral** | `setReferrer()` reverts on `msg.sender == referrer` | Tested |
+| **Double referral** | Referrer can only be set once per user | Tested |
+| **Soulbound NFT** | `transferFrom()` always reverts — VIP NFT cannot be sold/transferred | Tested |
+| **hookData validation** | Swaps without hookData (length < 64) skip loyalty logic gracefully | Tested |
+| **Operating hours** | Overnight wrapping (e.g., 22:00-06:00) handled correctly | Fuzz tested |
+| **Max tx limits** | Per-restaurant configurable caps prevent whale exploitation | Tested |
+| **MINTER_ROLE** | Hook requires MINTER_ROLE on FoodyeCoin — must be explicitly granted post-deploy | Documented |
+| **Fee bounds** | Dynamic fee can never exceed BASE_LP_FEE (3000 bps = 0.3%) | Fuzz tested |
+
+### Pre-production Checklist
+
+- [ ] Formal audit by a reputable security firm
+- [ ] Multi-sig for `admin` role (Gnosis Safe recommended)
+- [ ] Time-lock on admin functions (e.g., OpenZeppelin TimelockController)
+- [ ] Rate limiting on FOODY cashback minting
+- [ ] Emergency pause mechanism
+- [ ] Monitor FOODY token supply inflation from cashback rewards
+
+---
+
 ## License
 
 MIT
