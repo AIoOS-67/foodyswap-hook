@@ -109,7 +109,7 @@ When a user reaches $1,000+ cumulative spend, the hook automatically mints a **s
 
 1. **Single hook, not three** — One contract manages all three layers. Less gas, simpler state, matches V4's one-hook-per-pool design.
 
-2. **Existing token integration** — FoodySwap interfaces with the **existing FoodyeCoin** ([`0x289b...462c`](https://basescan.org/token/0x289b9fc2a3f19faf7260905d0b15e1c90e8a462c)) on Base chain, which has `MINTER_ROLE`-based `mint()`. The hook is granted MINTER_ROLE to mint cashback rewards directly.
+2. **Existing token integration** — FoodySwap interfaces with the **existing FoodyeCoin** ([`0x1022...C08F`](https://basescan.org/token/0x1022B1B028a2237C440DbAc51Dc6fC220D88C08F)) on Base chain, which has `MINTER_ROLE`-based `mint()`. The hook is granted MINTER_ROLE to mint cashback rewards directly.
 
 3. **Dynamic fee via OVERRIDE_FEE_FLAG** — Layer 2 uses `LPFeeLibrary.OVERRIDE_FEE_FLAG` to override the pool's LP fee per-swap based on the user's loyalty tier, without permanently changing the pool's base fee.
 
@@ -354,7 +354,7 @@ forge snapshot --match-path test/FoodySwapHook.t.sol --snap .forge-snapshots/Foo
 
 | Asset | Address | Chain |
 |---|---|---|
-| FoodyeCoin (FOODY) | [`0x289b9fc2a3f19faf7260905d0b15e1c90e8a462c`](https://basescan.org/token/0x289b9fc2a3f19faf7260905d0b15e1c90e8a462c) | Base |
+| FoodyeCoin (FOODY) | [`0x1022B1B028a2237C440DbAc51Dc6fC220D88C08F`](https://basescan.org/token/0x1022B1B028a2237C440DbAc51Dc6fC220D88C08F) | Base |
 | USDC | [`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`](https://basescan.org/token/0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913) | Base |
 | FOODY/USDC V4 Pool | Position #60816 (0.3% fee) | Base |
 | FOODY/USDC V3 Pool | Position #3093011 | Base |
@@ -408,6 +408,6 @@ MIT
 ## Links
 
 - [FoodyePay Platform](https://foodyepay.com)
-- [FoodyeCoin on BaseScan](https://basescan.org/token/0x289b9fc2a3f19faf7260905d0b15e1c90e8a462c)
+- [FoodyeCoin on BaseScan](https://basescan.org/token/0x1022B1B028a2237C440DbAc51Dc6fC220D88C08F)
 - [Uniswap V4 Docs](https://docs.uniswap.org/contracts/v4/overview)
 - [UHI Hookathon 8](https://www.uniswapfoundation.org/hookathon)

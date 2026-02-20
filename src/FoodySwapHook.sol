@@ -14,7 +14,7 @@ import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {FoodyVIPNFT} from "./FoodyVIPNFT.sol";
 
 /// @title IFoodyToken — Interface for the existing FoodyeCoin on Base
-/// @notice The on-chain FOODY token at 0x289b9fc2a3f19faf7260905d0b15e1c90e8a462c
+/// @notice The on-chain FOODY token at 0x1022B1B028a2237C440DbAc51Dc6fC220D88C08F
 ///         has MINTER_ROLE-based mint(). We interface with it here.
 interface IFoodyToken {
     function mint(address to, uint256 amount) external;
