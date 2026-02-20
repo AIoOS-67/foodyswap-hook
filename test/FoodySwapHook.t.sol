@@ -314,11 +314,30 @@ contract FoodySwapHookTest is BaseTest {
         vm.prank(admin);
         hook.addRestaurant(limitedId, restaurantWallet, 0, 0, 100e6); // Max $100
 
-        // Try a huge swap
+        // Try a swap that exceeds the $100 limit — should revert
         bytes memory hookData = abi.encode(alice, limitedId);
 
-        // This might revert if the amount exceeds the limit
-        // The check is on params.amountSpecified which is in token terms
+        vm.expectRevert();
+        swapRouter.swapExactTokensForTokens({
+            amountIn: 200e6, // $200 — exceeds $100 limit
+            amountOutMin: 0,
+            zeroForOne: true,
+            poolKey: poolKey,
+            hookData: hookData,
+            receiver: address(this),
+            deadline: block.timestamp + 1
+        });
+
+        // A swap within the limit should succeed
+        swapRouter.swapExactTokensForTokens({
+            amountIn: 50e6, // $50 — within $100 limit
+            amountOutMin: 0,
+            zeroForOne: true,
+            poolKey: poolKey,
+            hookData: hookData,
+            receiver: address(this),
+            deadline: block.timestamp + 1
+        });
     }
 
     // =========================================================================
@@ -339,8 +358,22 @@ contract FoodySwapHookTest is BaseTest {
     function testVIPNFTSoulbound() public {
         FoodyVIPNFT vipNft = hook.vipNFT();
 
-        // Can't transfer (soulbound)
-        // This would revert with "Soulbound: non-transferable"
+        // Mint a VIP NFT directly via the hook (hook is owner of vipNFT)
+        // We need to reach VIP tier first — simulate by doing large swaps
+        // VIP_THRESHOLD = 1000e6, but tokens use 18 decimals at 1:1 price
+        // So we just need enough volume. Do large swaps.
+        for (uint256 i = 0; i < 20; i++) {
+            _swap(alice, 100e18, true);
+        }
+
+        // Check alice reached VIP and got NFT
+        assertTrue(vipNft.hasVIP(alice), "Alice should have VIP NFT");
+        assertTrue(hook.isVIP(alice), "Alice should be VIP");
+
+        // Try to transfer the soulbound NFT — should revert
+        vm.prank(alice);
+        vm.expectRevert("Soulbound: non-transferable");
+        vipNft.transferFrom(alice, bob, 0);
     }
 
     // =========================================================================
