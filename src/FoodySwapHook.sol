@@ -392,20 +392,28 @@ contract FoodySwapHook is BaseHook {
         uint256 foodyReward = rewardAmount * 1e12; // Scale 6 decimals to 18 decimals
 
         if (foodyReward > 0) {
-            foodyToken.mint(user, foodyReward);
-            userLoyalty.foodyEarned += foodyReward;
-            totalRewardsDistributed += foodyReward;
-            emit CashbackAwarded(user, foodyReward, userLoyalty.tier);
+            // try/catch: mint may fail if Hook lacks MINTER_ROLE on foodyToken
+            // Swap still succeeds — cashback auto-enables once role is granted
+            try foodyToken.mint(user, foodyReward) {
+                userLoyalty.foodyEarned += foodyReward;
+                totalRewardsDistributed += foodyReward;
+                emit CashbackAwarded(user, foodyReward, userLoyalty.tier);
+            } catch {
+                // Mint failed (no MINTER_ROLE) — swap still succeeds, just no cashback
+            }
         }
 
         // Handle referral bonus
         if (userLoyalty.referrer != address(0)) {
             uint256 referrerBonus = (inputAmount * REFERRER_BONUS_BPS * 1e12) / 10000;
             if (referrerBonus > 0) {
-                foodyToken.mint(userLoyalty.referrer, referrerBonus);
-                loyalty[userLoyalty.referrer].referralEarned += referrerBonus;
-                totalRewardsDistributed += referrerBonus;
-                emit ReferralBonusPaid(userLoyalty.referrer, user, referrerBonus);
+                try foodyToken.mint(userLoyalty.referrer, referrerBonus) {
+                    loyalty[userLoyalty.referrer].referralEarned += referrerBonus;
+                    totalRewardsDistributed += referrerBonus;
+                    emit ReferralBonusPaid(userLoyalty.referrer, user, referrerBonus);
+                } catch {
+                    // Mint failed — referral bonus skipped
+                }
             }
         }
 
@@ -516,6 +524,13 @@ contract FoodySwapHook is BaseHook {
         rewardPoolWallet = newRewardPoolWallet;
     }
 
+    /// @notice Update the FOODY token address (e.g., after token migration)
+    /// @param newFoodyToken New FOODY token contract address
+    function setFoodyToken(address newFoodyToken) external onlyAdmin {
+        if (newFoodyToken == address(0)) revert InvalidAddress();
+        foodyToken = IFoodyToken(newFoodyToken);
+    }
+
     // =========================================================================
     // View Functions
     // =========================================================================
@@ -545,9 +560,13 @@ contract FoodySwapHook is BaseHook {
         return restaurants[restaurantId].isActive;
     }
 
-    /// @notice Check if a user has VIP NFT
+    /// @notice Check if a user has VIP NFT (graceful degradation — never reverts)
     function isVIP(address user) external view returns (bool) {
-        return vipNFT.hasVIP(user);
+        try vipNFT.hasVIP(user) returns (bool result) {
+            return result;
+        } catch {
+            return false; // Degraded: treat as non-VIP if NFT contract call fails
+        }
     }
 
     /// @notice Get the current dynamic fee for a user (including peak hour adjustment)
