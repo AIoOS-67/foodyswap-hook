@@ -20,6 +20,8 @@ import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {EasyPosm} from "./utils/libraries/EasyPosm.sol";
 import {BaseTest} from "./utils/BaseTest.sol";
 
+import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
+
 import {FoodySwapHook} from "../src/FoodySwapHook.sol";
 import {FoodyVIPNFT} from "../src/FoodyVIPNFT.sol";
 import {MockFoodyToken} from "./mocks/MockFoodyToken.sol";
@@ -107,6 +109,26 @@ contract FoodySwapHookFuzzTest is BaseTest {
             amount0Expected + 1, amount1Expected + 1,
             address(this), block.timestamp, Constants.ZERO_BYTES
         );
+
+        // Fund alice for fuzz swaps
+        _fundUser(alice);
+    }
+
+    // =========================================================================
+    // Helper: fund user with tokens and approvals
+    // =========================================================================
+
+    function _fundUser(address user) internal {
+        MockERC20 token0 = MockERC20(Currency.unwrap(currency0));
+        MockERC20 token1 = MockERC20(Currency.unwrap(currency1));
+
+        token0.transfer(user, 1_000_000 ether);
+        token1.transfer(user, 1_000_000 ether);
+
+        vm.startPrank(user);
+        token0.approve(address(swapRouter), type(uint256).max);
+        token1.approve(address(swapRouter), type(uint256).max);
+        vm.stopPrank();
     }
 
     // =========================================================================
@@ -114,14 +136,15 @@ contract FoodySwapHookFuzzTest is BaseTest {
     // =========================================================================
 
     function _swap(address user, uint256 amountIn, bool zeroForOne) internal returns (BalanceDelta) {
-        bytes memory hookData = abi.encode(user, restaurantId);
+        bytes memory hookData = abi.encode(restaurantId);
+        vm.prank(user);
         return swapRouter.swapExactTokensForTokens({
             amountIn: amountIn,
             amountOutMin: 0,
             zeroForOne: zeroForOne,
             poolKey: poolKey,
             hookData: hookData,
-            receiver: address(this),
+            receiver: user,
             deadline: block.timestamp + 1
         });
     }
@@ -203,18 +226,19 @@ contract FoodySwapHookFuzzTest is BaseTest {
         }
 
         // Try to swap
-        bytes memory hookData = abi.encode(alice, fuzzRestId);
+        bytes memory hookData = abi.encode(fuzzRestId);
         if (!shouldBeOpen) {
             // Should revert (V4 wraps in WrappedError)
             vm.expectRevert();
         }
+        vm.prank(alice);
         swapRouter.swapExactTokensForTokens({
             amountIn: 1e15, // Small amount to stay within liquidity
             amountOutMin: 0,
             zeroForOne: true,
             poolKey: poolKey,
             hookData: hookData,
-            receiver: address(this),
+            receiver: alice,
             deadline: block.timestamp + 1
         });
     }

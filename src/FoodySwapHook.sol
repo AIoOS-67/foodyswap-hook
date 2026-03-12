@@ -12,6 +12,7 @@ import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/type
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 
 import {FoodyVIPNFT} from "./FoodyVIPNFT.sol";
+import {IMsgSender} from "@uniswap/v4-periphery/src/interfaces/IMsgSender.sol";
 
 /// @title IFoodyToken — Interface for the existing FoodyeCoin on Base
 /// @notice The on-chain FOODY token at 0x1022B1B028a2237C440DbAc51Dc6fC220D88C08F
@@ -226,14 +227,16 @@ contract FoodySwapHook is BaseHook {
     }
 
     /// @notice Layer 1 (Constraints) + Layer 2 (Pricing) — executed before every swap
-    function _beforeSwap(address, PoolKey calldata, SwapParams calldata params, bytes calldata hookData)
+    function _beforeSwap(address sender, PoolKey calldata, SwapParams calldata params, bytes calldata hookData)
         internal
         override
         returns (bytes4, BeforeSwapDelta, uint24)
     {
-        // Decode hookData: (address user, bytes32 restaurantId)
-        if (hookData.length >= 64) {
-            (address user, bytes32 restaurantId) = abi.decode(hookData, (address, bytes32));
+        // Decode hookData: (bytes32 restaurantId)
+        // User identity is resolved from the router's msgSender() — not from hookData
+        if (hookData.length >= 32) {
+            bytes32 restaurantId = abi.decode(hookData, (bytes32));
+            address user = IMsgSender(sender).msgSender();
 
             // ===== Layer 1: Constraints =====
             _checkConstraints(restaurantId, params);
@@ -253,14 +256,15 @@ contract FoodySwapHook is BaseHook {
 
     /// @notice Layer 3 (Settlement + Rewards) — executed after every swap
     function _afterSwap(
-        address,
+        address sender,
         PoolKey calldata,
         SwapParams calldata params,
         BalanceDelta delta,
         bytes calldata hookData
     ) internal override returns (bytes4, int128) {
-        if (hookData.length >= 64) {
-            (address user, bytes32 restaurantId) = abi.decode(hookData, (address, bytes32));
+        if (hookData.length >= 32) {
+            bytes32 restaurantId = abi.decode(hookData, (bytes32));
+            address user = IMsgSender(sender).msgSender();
 
             // ===== Layer 3: Settlement + Rewards =====
             _settleAndReward(user, restaurantId, params, delta);

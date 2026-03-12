@@ -20,6 +20,8 @@ import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {EasyPosm} from "./utils/libraries/EasyPosm.sol";
 import {BaseTest} from "./utils/BaseTest.sol";
 
+import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
+
 import {FoodySwapHook} from "../src/FoodySwapHook.sol";
 import {FoodyVIPNFT} from "../src/FoodyVIPNFT.sol";
 import {MockFoodyToken} from "./mocks/MockFoodyToken.sol";
@@ -104,6 +106,24 @@ contract FoodySwapHookTest is BaseTest {
             amount0Expected + 1, amount1Expected + 1,
             address(this), block.timestamp, Constants.ZERO_BYTES
         );
+
+        // Fund test users and approve router so vm.prank swaps work
+        _fundUser(alice);
+        _fundUser(bob);
+    }
+
+    /// @dev Transfer tokens to a user and approve the swap router
+    function _fundUser(address user) internal {
+        MockERC20 token0 = MockERC20(Currency.unwrap(currency0));
+        MockERC20 token1 = MockERC20(Currency.unwrap(currency1));
+
+        token0.transfer(user, 1_000_000 ether);
+        token1.transfer(user, 1_000_000 ether);
+
+        vm.startPrank(user);
+        token0.approve(address(swapRouter), type(uint256).max);
+        token1.approve(address(swapRouter), type(uint256).max);
+        vm.stopPrank();
     }
 
     // =========================================================================
@@ -111,14 +131,17 @@ contract FoodySwapHookTest is BaseTest {
     // =========================================================================
 
     function _swap(address user, uint256 amountIn, bool zeroForOne) internal returns (BalanceDelta) {
-        bytes memory hookData = abi.encode(user, restaurantId);
+        bytes memory hookData = abi.encode(restaurantId);
+        // The hook resolves user identity via IMsgSender(router).msgSender(),
+        // so we prank as the user to set the router's msgSender correctly.
+        vm.prank(user);
         return swapRouter.swapExactTokensForTokens({
             amountIn: amountIn,
             amountOutMin: 0,
             zeroForOne: zeroForOne,
             poolKey: poolKey,
             hookData: hookData,
-            receiver: address(this),
+            receiver: user,
             deadline: block.timestamp + 1
         });
     }
@@ -258,9 +281,10 @@ contract FoodySwapHookTest is BaseTest {
 
     function testInactiveRestaurantReverts() public {
         bytes32 fakeId = keccak256("fake-restaurant");
-        bytes memory hookData = abi.encode(alice, fakeId);
+        bytes memory hookData = abi.encode(fakeId);
 
         // V4 wraps hook reverts in WrappedError, so use generic expectRevert
+        vm.prank(alice);
         vm.expectRevert();
         swapRouter.swapExactTokensForTokens({
             amountIn: 1e18,
@@ -268,7 +292,7 @@ contract FoodySwapHookTest is BaseTest {
             zeroForOne: true,
             poolKey: poolKey,
             hookData: hookData,
-            receiver: address(this),
+            receiver: alice,
             deadline: block.timestamp + 1
         });
     }
@@ -286,12 +310,13 @@ contract FoodySwapHookTest is BaseTest {
         // Warp to 3 AM UTC (outside operating hours)
         vm.warp(1700000000 + 3 * 3600); // some timestamp at 3 AM
 
-        bytes memory hookData = abi.encode(alice, limitedId);
+        bytes memory hookData = abi.encode(limitedId);
 
         // The hour check depends on block.timestamp, let's verify it reverts
         // We need to be precise about the hour calculation
         uint8 currentHour = uint8((block.timestamp / 3600) % 24);
         if (currentHour < 10 || currentHour >= 22) {
+            vm.prank(alice);
             vm.expectRevert();
             swapRouter.swapExactTokensForTokens({
                 amountIn: 1e18,
@@ -299,7 +324,7 @@ contract FoodySwapHookTest is BaseTest {
                 zeroForOne: true,
                 poolKey: poolKey,
                 hookData: hookData,
-                receiver: address(this),
+                receiver: alice,
                 deadline: block.timestamp + 1
             });
         }
@@ -315,8 +340,9 @@ contract FoodySwapHookTest is BaseTest {
         hook.addRestaurant(limitedId, restaurantWallet, 0, 0, 100e6); // Max $100
 
         // Try a swap that exceeds the $100 limit — should revert
-        bytes memory hookData = abi.encode(alice, limitedId);
+        bytes memory hookData = abi.encode(limitedId);
 
+        vm.prank(alice);
         vm.expectRevert();
         swapRouter.swapExactTokensForTokens({
             amountIn: 200e6, // $200 — exceeds $100 limit
@@ -324,18 +350,19 @@ contract FoodySwapHookTest is BaseTest {
             zeroForOne: true,
             poolKey: poolKey,
             hookData: hookData,
-            receiver: address(this),
+            receiver: alice,
             deadline: block.timestamp + 1
         });
 
         // A swap within the limit should succeed
+        vm.prank(alice);
         swapRouter.swapExactTokensForTokens({
             amountIn: 50e6, // $50 — within $100 limit
             amountOutMin: 0,
             zeroForOne: true,
             poolKey: poolKey,
             hookData: hookData,
-            receiver: address(this),
+            receiver: alice,
             deadline: block.timestamp + 1
         });
     }
