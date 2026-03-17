@@ -14,7 +14,8 @@ import {FoodySwapHook} from "../src/FoodySwapHook.sol";
 
 /// @title TestSwapSepolia — Execute a test swap through FoodySwap Hook
 /// @notice Swaps FOODY → USDC via hookmate SwapRouter on Base Sepolia.
-///         Encodes hookData with user + restaurantId so the Hook processes loyalty.
+///         Encodes hookData with restaurantId only; the Hook resolves diner
+///         identity via IMsgSender(sender).msgSender() to prevent spoofing.
 ///
 /// @dev Usage:
 ///   forge script script/TestSwapSepolia.s.sol \
@@ -58,8 +59,8 @@ contract TestSwapSepoliaScript is Script {
             hooks: HOOK
         });
 
-        // hookData: abi.encode(userAddress, restaurantId)
-        bytes memory hookData = abi.encode(DEPLOYER, SICHUAN_ID);
+        // hookData: abi.encode(restaurantId)
+        bytes memory hookData = abi.encode(SICHUAN_ID);
 
         // Log pre-swap state
         console2.log("=== Test Swap: FOODY -> USDC via FoodySwap Hook ===");
